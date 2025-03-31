@@ -1,0 +1,11 @@
+{
+    "name": "stable_coin",
+    "version": "1.0.0",
+    "description": "Stable Coin Project",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "dependencies": {
+        "@openzeppelin/contracts": "^4.9.0"
+    }
+}
