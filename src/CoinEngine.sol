@@ -114,6 +114,22 @@ contract CoinEngine is ReentrancyGuard {
     }
 
     ///////////////////
+    // External Functions
+    ///////////////////
+
+    /**
+     * 
+     * @param tokenCollateralAddress address of the token to be deposited
+     * @param amountCollateral amount of the token to be deposited
+     * @param amountToMint amount of the token to be minted
+     * @notice This function is used to deposit collateral in the engine and mint SC in one go
+     */
+    function depositeCollateralAndMintSC(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountToMint) external {
+        depositCollateral(tokenCollateralAddress, amountCollateral);
+        mintSc(amountToMint);
+    }
+
+    ///////////////////
     // Public Functions
     ///////////////////
 
@@ -134,8 +150,8 @@ contract CoinEngine is ReentrancyGuard {
         }
     }
 
-    function mintSc(uint256 amount) public nonReentrant moreThanZero(amount) {
-        s_scMinted[msg.sender] += amount;
+    function mintSc(uint256 amountToMint) public nonReentrant moreThanZero(amountToMint) {
+        s_scMinted[msg.sender] += amountToMint;
         _revertIfHealtFactorIsBroken(msg.sender);
     }
 
@@ -192,4 +208,8 @@ contract CoinEngine is ReentrancyGuard {
     /////////////////////////////////////////////
     // External & Public View & Pure Functions
     /////////////////////////////////////////////
+
+    function getValueUSD(address tokenAddress, uint256 amount) external view returns(uint256) {
+        return _getValueUSD(tokenAddress,amount);
+    }
 }

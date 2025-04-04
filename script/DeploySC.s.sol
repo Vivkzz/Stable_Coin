@@ -10,16 +10,19 @@ contract DeploySC is Script {
     address[] public tokenAddress;
     address[] public priceFeedAddress;
 
-    function run() external {
+    function run() external returns(StableCoin,CoinEngine,HelperConfig){
         HelperConfig config = new HelperConfig();
+
         (address wethUsdPriceFeed, address wbtcUsdPriceFeed, address weth, address wbtc, uint256 deployerkey) =
             config.activeNetworkConfig();
         tokenAddress = [weth, wbtc];
         priceFeedAddress = [wethUsdPriceFeed, wbtcUsdPriceFeed];
+        
         vm.startBroadcast(deployerkey);
         StableCoin sc = new StableCoin();
         CoinEngine engine = new CoinEngine(tokenAddress, priceFeedAddress, address(sc));
         sc.transferOwnership(address(engine));
         vm.stopBroadcast();
+        return(sc,engine,config);
     }
 }
