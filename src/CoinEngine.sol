@@ -118,13 +118,15 @@ contract CoinEngine is ReentrancyGuard {
     ///////////////////
 
     /**
-     * 
+     *
      * @param tokenCollateralAddress address of the token to be deposited
      * @param amountCollateral amount of the token to be deposited
      * @param amountToMint amount of the token to be minted
      * @notice This function is used to deposit collateral in the engine and mint SC in one go
      */
-    function depositeCollateralAndMintSC(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountToMint) external {
+    function depositeCollateralAndMintSC(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountToMint)
+        external
+    {
         depositCollateral(tokenCollateralAddress, amountCollateral);
         mintSc(amountToMint);
     }
@@ -155,9 +157,55 @@ contract CoinEngine is ReentrancyGuard {
         _revertIfHealtFactorIsBroken(msg.sender);
     }
 
+    //  Burn you own SC.
+    function burnSC(uint256 amount) external moreThanZero(amount) {
+        _burnSc(amount, msg.sender, msg.sender);
+        _revertIfHealtFactorIsBroken(msg.sender); // technically not needed to do this
+    }
+
+    function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral)
+        external
+        nonReentrant
+        moreThanZero(amountCollateral)
+        isAllowedToken(tokenCollateralAddress)
+    {
+        s_collateralDeposited[msg.sender][tokenCollateralAddress] -= amountCollateral;
+        _redeemCollateral(tokenCollateralAddress, amountCollateral, msg.sender, msg.sender);
+        _revertIfHealtFactorIsBroken(msg.sender);
+    }
+
     //////////////////////////////
     // Private & Internal View & Pure Functions
     //////////////////////////////
+
+    /**
+     *
+     * @param amountScToBurn amount of SC to be burned
+     * @param onBehalfOf address of the user on behalf of whom the SC is being burned
+     * @param dscFrom address of user who is burning the SC
+     * @notice This function is used to burn SC also during liquidation of another user
+     *
+     */
+    function _burnSc(uint256 amountScToBurn, address onBehalfOf, address dscFrom) private {
+        // this will auto revert if user balance is less than amount to burn in newer versions
+        s_scMinted[onBehalfOf] -= amountScToBurn;
+        bool success = i_sc.transferFrom(dscFrom, address(this), amountScToBurn);
+        if (!success) {
+            revert CoinEngine_TransferFailed();
+        }
+        i_sc.burn(amountScToBurn);
+    }
+
+    function _redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral, address from, address to)
+        private
+    {
+        s_collateralDeposited[from][tokenCollateralAddress] -= amountCollateral;
+        (bool success) = IERC20(tokenCollateralAddress).transfer(to, amountCollateral);
+        if (!success) {
+            revert CoinEngine_TransferFailed();
+        }
+    }
+
     function _getValueUSD(address tokenAddress, uint256 amount) private view returns (uint256) {
         AggregatorV3Interface dataFeed = AggregatorV3Interface(s_priceFeeds[tokenAddress]);
         (, int256 price,,,) = dataFeed.latestRoundData();
@@ -209,7 +257,7 @@ contract CoinEngine is ReentrancyGuard {
     // External & Public View & Pure Functions
     /////////////////////////////////////////////
 
-    function getValueUSD(address tokenAddress, uint256 amount) external view returns(uint256) {
-        return _getValueUSD(tokenAddress,amount);
+    function getValueUSD(address tokenAddress, uint256 amount) external view returns (uint256) {
+        return _getValueUSD(tokenAddress, amount);
     }
 }
