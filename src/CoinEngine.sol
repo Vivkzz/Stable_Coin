@@ -50,6 +50,8 @@ contract CoinEngine is ReentrancyGuard {
     error CoinEngine_TransferFailed();
     error CoinEngine_HealthFactorBroken();
     error CoinEngine_TokenAddressAndPriceFeedAddressLengthDontMatch();
+    error CoinEngine_HealtFactorIsGood();
+    error CoinEngine_HealthFactorNotImproved();
 
     ///////////////////
     // Types
@@ -66,6 +68,7 @@ contract CoinEngine is ReentrancyGuard {
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant LIQUIDATION_THRESOLD = 50;
     uint256 private constant LIQUIDATION_PRECISION = 100;
+    uint256 private constant LIQUIDATION_BONUS = 10;
 
     /// @dev Mapping of token address to price feed address
     mapping(address tokenCollateralAddress => address priceFeed) private s_priceFeeds;
@@ -80,6 +83,7 @@ contract CoinEngine is ReentrancyGuard {
     // Events
     ///////////////////
     event CollateralDeposited(address indexed user, address indexed tokenCollateralAddress, uint256 amount);
+    event CollateralRedeemed(address indexed redeemFrom, address indexed redeemTo, address token, uint256 amount);
 
     ///////////////////
     // Modifiers
@@ -154,13 +158,13 @@ contract CoinEngine is ReentrancyGuard {
 
     function mintSc(uint256 amountToMint) public nonReentrant moreThanZero(amountToMint) {
         s_scMinted[msg.sender] += amountToMint;
-        _revertIfHealtFactorIsBroken(msg.sender);
+        _revertIfHealthFactorIsBroken(msg.sender);
     }
 
     //  Burn you own SC.
     function burnSC(uint256 amount) external moreThanZero(amount) {
         _burnSc(amount, msg.sender, msg.sender);
-        _revertIfHealtFactorIsBroken(msg.sender); // technically not needed to do this
+        _revertIfHealthFactorIsBroken(msg.sender); // technically not needed to do this
     }
 
     function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral)
@@ -171,7 +175,28 @@ contract CoinEngine is ReentrancyGuard {
     {
         s_collateralDeposited[msg.sender][tokenCollateralAddress] -= amountCollateral;
         _redeemCollateral(tokenCollateralAddress, amountCollateral, msg.sender, msg.sender);
-        _revertIfHealtFactorIsBroken(msg.sender);
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
+
+    function liquidate(uint256 debtToCover, address tokenCollateralAddress, address user) external {
+        uint256 startingHealthFactor = _getUserHealthFactor(user);
+
+        if (startingHealthFactor > MIN_HEALTH_FACTOR) {
+            revert CoinEngine_HealtFactorIsGood();
+        }
+        uint256 tokenAmountToCoverFromDebt = getTokenValueFromUSD(debtToCover, tokenCollateralAddress);
+        uint256 bonusCollateral = (tokenAmountToCoverFromDebt * LIQUIDATION_BONUS) / LIQUIDATION_PRECISION;
+
+        _redeemCollateral(tokenCollateralAddress, tokenAmountToCoverFromDebt + bonusCollateral, user, msg.sender);
+        _burnSc(debtToCover, user, msg.sender);
+
+        uint256 endingUserHealthFactor = _getUserHealthFactor(user);
+
+        // This condtional will not hit
+        if (endingUserHealthFactor < startingHealthFactor) {
+            revert CoinEngine_HealthFactorNotImproved();
+        }
+        _revertIfHealthFactorIsBroken(msg.sender);
     }
 
     //////////////////////////////
@@ -200,6 +225,7 @@ contract CoinEngine is ReentrancyGuard {
         private
     {
         s_collateralDeposited[from][tokenCollateralAddress] -= amountCollateral;
+        emit CollateralRedeemed(from, to, tokenCollateralAddress, amountCollateral);
         (bool success) = IERC20(tokenCollateralAddress).transfer(to, amountCollateral);
         if (!success) {
             revert CoinEngine_TransferFailed();
@@ -213,7 +239,7 @@ contract CoinEngine is ReentrancyGuard {
         return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
     }
 
-    function _revertIfHealtFactorIsBroken(address user) internal view {
+    function _revertIfHealthFactorIsBroken(address user) internal view {
         uint256 userHealthFactor = _getUserHealthFactor(user);
         if (userHealthFactor < MIN_HEALTH_FACTOR) {
             revert CoinEngine_HealthFactorBroken();
@@ -248,7 +274,7 @@ contract CoinEngine is ReentrancyGuard {
         pure
         returns (uint256)
     {
-        // if (totalSCMinted == 0) return type(uint256).max;
+        if (totalSCMinted == 0) return type(uint256).max;
         uint256 collateralThresold = (collateralValueInUSD * LIQUIDATION_THRESOLD) / LIQUIDATION_PRECISION;
         return (collateralThresold * PRECISION) / totalSCMinted;
     }
@@ -256,8 +282,22 @@ contract CoinEngine is ReentrancyGuard {
     /////////////////////////////////////////////
     // External & Public View & Pure Functions
     /////////////////////////////////////////////
+    function getTokenValueFromUSD(uint256 amountSC, address tokenAddress) public view returns (uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[tokenAddress]);
+        (, int256 price,,,) = priceFeed.latestRoundData();
+
+        return ((amountSC * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION));
+    }
 
     function getValueUSD(address tokenAddress, uint256 amount) external view returns (uint256) {
         return _getValueUSD(tokenAddress, amount);
+    }
+
+    function getAccountInformation(address user)
+        external
+        view
+        returns (uint256 totalSCMinted, uint256 collateralValueInUSD)
+    {
+        (totalSCMinted, collateralValueInUSD) = _getAccountInformation(user);
     }
 }
