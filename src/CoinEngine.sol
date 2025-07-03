@@ -31,7 +31,7 @@ import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interf
 /**
  * @title Coin Engine
  * @author Vivek Tanna
- *  This contract it the issential file for pegging our Stable coin 1SC = $1
+ *  This contract it the essential file for pegging our Stable coin 1SC = $1
  * ~Algorithmic Stable
  * ~Exogenously Collateral
  * ~Dollar Pegged
